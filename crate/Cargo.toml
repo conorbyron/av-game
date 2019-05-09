@@ -9,11 +9,9 @@ version = "0.1.0"
 edition = "2018"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasm-bindgen = "0.2.43"
-
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
 # all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
@@ -24,11 +22,33 @@ console_error_panic_hook = { version = "0.1.5", optional = true }
 # compared to the default allocator's ~10K. It is slower than the default
 # allocator, however.
 wee_alloc = { version = "0.4.2", optional = true }
+js-sys = "0.3.20"
+serde = "1.0.91"
+serde_json = "1.0.39"
+serde_derive = "1.0.91"
+
+[dependencies.wasm-bindgen]
+version = "0.2.43"
+features = ["serde-serialize"]
+
+[dependencies.specs]
+version = "0.14.3"
+default-features = false
 
 [dependencies.web-sys]
 version = "0.3.20"
 features = [
+  'console',
   'WebSocket',
+  'MessageEvent',
+  'KeyboardEvent',
+  'MouseEvent',
+  'Document',
+  'Element',
+  'HtmlElement',
+  'Node',
+  'Window',
+  'EventTarget',
 ]
 
 [features]
