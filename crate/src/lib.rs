@@ -15,45 +15,31 @@ use web_sys::{console, KeyboardEvent, MessageEvent, MouseEvent, WebSocket};
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 struct Game {
-    specs_world: World,
-}
-
-pub struct UpdateDeltaTime {
-    pub dt: f64,
+    //specs_world: World,
 }
 
 impl Game {
-    fn update(&mut self) {
-        self.specs_world.maintain();
+    pub fn update(&mut self) {
     }
-
-    fn press(&mut self) {
-        /*
-        self.specs_world.write_resource::<InputEvents>().events
-            .push_back(InputEvent::PressEvent(*args));
-
-        // FIXME: Move to edit.rs
-        if let &Button::Keyboard(Key::R) = args {
-            saveload::ResetWorld.run_now(&mut self.specs_world.res);
-            self.specs_world.maintain();
-        }
-        */
+    pub fn keydown(&mut self, e: KeyboardEvent) {
+        console::log_1(&format!("keydown: {}", e.key()).into());
     }
-
-    fn release(&mut self) {
-        /*
-        self.specs_world.write_resource::<InputEvents>().events
-            .push_back(InputEvent::ReleaseEvent(*args));
-        */
+    pub fn keyup(&mut self, e: KeyboardEvent) {
+        console::log_1(&format!("keyup: {}", e.key()).into());
     }
-
-    fn mouse_cursor(&mut self, x: f64, y: f64) {
-        /*
-        self.specs_world.write_resource::<InputEvents>().events
-            .push_back(InputEvent::MotionEvent(x, y));
-        */
+    pub fn click(&mut self, e: MouseEvent) {
+        console::log_1(&format!("click: {}, {}", e.screen_x(), e.screen_y()).into());
+    }
+    pub fn mousemove(&mut self, e: MouseEvent) {
+        console::log_1(&format!("mousemove: {}, {}", e.movement_x(), e.movement_y()).into());
+    }
+    pub fn websocket_message(&mut self, e: MessageEvent) {
+        let message: String = e.data().into_serde().unwrap();
+        console::log_1(&format!("message: {}", message).into());
     }
 }
+
+thread_local! { static GAME: Rc<RefCell<Game>> = Rc::new(RefCell::new(Game{})); }
 
 fn window() -> web_sys::Window {
     web_sys::window().expect("no global `window` exists")
@@ -79,20 +65,20 @@ fn setup_mouse_and_keyboard_events() -> Result<(), JsValue> {
     let window = window();
 
     let keydown_callback = Closure::wrap(Box::new(|e: KeyboardEvent| {
-        console::log_1(&(format!("keyDown: {:?}", e.key()).into()));
+        GAME.with(|c| c.clone()).borrow_mut().keydown(e);
     }) as Box<dyn FnMut(KeyboardEvent)>);
     window
         .add_event_listener_with_callback(&"keydown", keydown_callback.as_ref().unchecked_ref())?;
     keydown_callback.forget();
 
     let keyup_callback = Closure::wrap(Box::new(|e: KeyboardEvent| {
-        console::log_1(&(format!("keyUp: {:?}", e.key()).into()));
+        GAME.with(|c| c.clone()).borrow_mut().keyup(e);
     }) as Box<dyn FnMut(KeyboardEvent)>);
     window.add_event_listener_with_callback(&"keyup", keyup_callback.as_ref().unchecked_ref())?;
     keyup_callback.forget();
 
     let mousemove_callback = Closure::wrap(Box::new(|e: MouseEvent| {
-        console::log_1(&(format!("mouseMove: x: {:?} y: {:?}", e.screen_x(), e.screen_y()).into()));
+        GAME.with(|c| c.clone()).borrow_mut().mousemove(e);
     }) as Box<dyn FnMut(MouseEvent)>);
     window.add_event_listener_with_callback(
         &"mousemove",
@@ -101,7 +87,7 @@ fn setup_mouse_and_keyboard_events() -> Result<(), JsValue> {
     mousemove_callback.forget();
 
     let click_callback = Closure::wrap(Box::new(|e: MouseEvent| {
-        console::log_1(&(format!("click: x: {:?} y: {:?}", e.screen_x(), e.screen_y()).into()));
+        GAME.with(|c| c.clone()).borrow_mut().click(e);
     }) as Box<dyn FnMut(MouseEvent)>);
     window.add_event_listener_with_callback(&"click", click_callback.as_ref().unchecked_ref())?;
     click_callback.forget();
@@ -115,7 +101,7 @@ pub fn run() -> Result<(), JsValue> {
 
     // websocket creation/setup
     let ws_callback = Closure::wrap(Box::new(|e: MessageEvent| {
-        console::log_1(&(format!("received: {:?}", e.data()).into()));
+        GAME.with(|c| c.clone()).borrow_mut().websocket_message(e);
     }) as Box<dyn Fn(MessageEvent)>);
     let ws = WebSocket::new(&"ws://localhost:3000").expect("Failed to connect!");
     ws.set_onmessage(Some(ws_callback.as_ref().unchecked_ref()));
@@ -131,7 +117,11 @@ pub fn run() -> Result<(), JsValue> {
 
     let mut i = 0;
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+        GAME.with(|c| c.clone()).borrow_mut().update();
         i += 1;
+        if i > 60 {
+            i = 1;
+        }
         let text = format!("requestAnimationFrame has been called {} times.", i);
         if ws.ready_state() == 1 {
             ws.send_with_str(&text).expect("Failed to send!");
