@@ -1,7 +1,5 @@
 //use js_sys::Function;
-use specs::{
-    Builder, Component, DispatcherBuilder, ReadStorage, System, VecStorage, World, WriteStorage,
-};
+use specs::prelude::World;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::{prelude::*, JsCast};
@@ -10,17 +8,43 @@ use web_sys::{console, KeyboardEvent, MessageEvent, MouseEvent, WebSocket};
 //use serde_derive;
 //use serde_json::Result as JsonResult; // Is this necessary, or does it overlap with the serde feature of wasm-bindgen?
 
+mod input;
+use input::{InputEvent, InputEvents};
+
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
+thread_local! { static GAME: Rc<RefCell<Option<Game>>> = Rc::new(RefCell::new(None)); }
+
+#[derive(Eq, PartialEq, Hash)]
+pub enum Key {
+    Up,
+    Down,
+    Right,
+    Left,
+    Space,
+}
+
+impl Key {
+    pub fn from(key_value: &str) -> Option<Key> {
+        match key_value {
+            "ArrowUp" => Some(Key::Up),
+            "ArrowDown" => Some(Key::Down),
+            "ArrowRight" => Some(Key::Right),
+            "ArrowLeft" => Some(Key::Left),
+            " " => Some(Key::Space),
+            _ => None,
+        }
+    }
+}
+
 struct Game {
-    //specs_world: World,
+    world: World,
 }
 
 impl Game {
-    pub fn update(&mut self) {
-    }
+    pub fn update(&mut self) {}
     pub fn keydown(&mut self, e: KeyboardEvent) {
         console::log_1(&format!("keydown: {}", e.key()).into());
     }
@@ -38,8 +62,6 @@ impl Game {
         console::log_1(&format!("message: {}", message).into());
     }
 }
-
-thread_local! { static GAME: Rc<RefCell<Game>> = Rc::new(RefCell::new(Game{})); }
 
 fn window() -> web_sys::Window {
     web_sys::window().expect("no global `window` exists")
@@ -65,20 +87,32 @@ fn setup_mouse_and_keyboard_events() -> Result<(), JsValue> {
     let window = window();
 
     let keydown_callback = Closure::wrap(Box::new(|e: KeyboardEvent| {
-        GAME.with(|c| c.clone()).borrow_mut().keydown(e);
+        GAME.with(|c| c.clone())
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .keydown(e);
     }) as Box<dyn FnMut(KeyboardEvent)>);
     window
         .add_event_listener_with_callback(&"keydown", keydown_callback.as_ref().unchecked_ref())?;
     keydown_callback.forget();
 
     let keyup_callback = Closure::wrap(Box::new(|e: KeyboardEvent| {
-        GAME.with(|c| c.clone()).borrow_mut().keyup(e);
+        GAME.with(|c| c.clone())
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .keyup(e);
     }) as Box<dyn FnMut(KeyboardEvent)>);
     window.add_event_listener_with_callback(&"keyup", keyup_callback.as_ref().unchecked_ref())?;
     keyup_callback.forget();
 
     let mousemove_callback = Closure::wrap(Box::new(|e: MouseEvent| {
-        GAME.with(|c| c.clone()).borrow_mut().mousemove(e);
+        GAME.with(|c| c.clone())
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .mousemove(e);
     }) as Box<dyn FnMut(MouseEvent)>);
     window.add_event_listener_with_callback(
         &"mousemove",
@@ -87,7 +121,11 @@ fn setup_mouse_and_keyboard_events() -> Result<(), JsValue> {
     mousemove_callback.forget();
 
     let click_callback = Closure::wrap(Box::new(|e: MouseEvent| {
-        GAME.with(|c| c.clone()).borrow_mut().click(e);
+        GAME.with(|c| c.clone())
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .click(e);
     }) as Box<dyn FnMut(MouseEvent)>);
     window.add_event_listener_with_callback(&"click", click_callback.as_ref().unchecked_ref())?;
     click_callback.forget();
@@ -99,9 +137,21 @@ fn setup_mouse_and_keyboard_events() -> Result<(), JsValue> {
 pub fn run() -> Result<(), JsValue> {
     set_panic_hook();
 
+    let mut world = World::new();
+    world.add_resource(input::InputEvents::new());
+    world.add_resource(input::InputState::new());
+
+    let game = Game{ world };
+
+    *(GAME.with(|c| c.clone())).borrow_mut() = Some(game);
+
     // websocket creation/setup
     let ws_callback = Closure::wrap(Box::new(|e: MessageEvent| {
-        GAME.with(|c| c.clone()).borrow_mut().websocket_message(e);
+        GAME.with(|c| c.clone())
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .websocket_message(e);
     }) as Box<dyn Fn(MessageEvent)>);
     let ws = WebSocket::new(&"ws://localhost:3000").expect("Failed to connect!");
     ws.set_onmessage(Some(ws_callback.as_ref().unchecked_ref()));
@@ -117,7 +167,13 @@ pub fn run() -> Result<(), JsValue> {
 
     let mut i = 0;
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        GAME.with(|c| c.clone()).borrow_mut().update();
+        GAME.with(|c| c.clone())
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .update();
+
+        // ~~~ this code will be deleted ~~~
         i += 1;
         if i > 60 {
             i = 1;
@@ -127,6 +183,7 @@ pub fn run() -> Result<(), JsValue> {
             ws.send_with_str(&text).expect("Failed to send!");
         }
         body().set_text_content(Some(&text));
+        // ~~~
         request_animation_frame(f.borrow().as_ref().unwrap());
     }) as Box<dyn FnMut()>));
 
